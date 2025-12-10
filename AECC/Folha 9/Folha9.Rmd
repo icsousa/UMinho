@@ -1,0 +1,333 @@
+---
+title: "Exercícios – Inferência Estatística"
+author: ""
+output: html_document
+fontsize: 11pt
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE,
+                      message = FALSE,
+                      warning = FALSE)
+set.seed(123)
+```
+
+
+# Exercício 1 – Estimação pontual e propriedades 
+
+Considere uma amostra aleatória simples $X_1, \dots, X_n$ de uma população com média $\mu$ e variância $\sigma^2$ (desconhecidas).
+
+Além das questões teóricas, utilize o R para trabalhar com o conjunto de dados abaixo, que representa, por exemplo, o número de horas de sono por noite de $n=12$ estudantes durante um período de exames.
+
+```{r E1}
+dados_ex1 <- c(6.5, 7.0, 5.8, 8.2, 6.9, 7.5, 5.2, 6.1, 7.8, 6.3, 5.9, 7.1)
+dados_ex1
+length(dados_ex1)  # tamanho da amostra
+```
+
+1. **Estimadores usuais**
+
+   (a) Indique os estimadores usuais para:
+
+   * a média populacional $\mu$ (denote por $\hat\mu$ ou $\bar X$);
+   * a variância populacional $\sigma^2$ (denote por $S^2$).
+
+   (b) Escreva as expressões explícitas de $\bar X$ e $S^2$ em função de $X_1,\dots,X_n$.
+
+   (c) Usando o R e os dados `dados_ex1`, calcule a média amostral e a variância amostral.
+```{r E1-1-C}
+mean(dados_ex1)
+var(dados_ex1)
+
+```
+
+   Compare verbalmente os valores obtidos com a definição de $\bar X$ e $S^2$ dada nas alíneas anteriores.
+   
+> Isto bate exatamente com as fórmulas da alínea b), `mean` calcula o $\bar X$ e o `var` calcula a variância com denominador $n-1$.
+
+2. **Não-enviesado e consistência**
+
+   (a) Explique, em palavras, o que significa dizer que um estimador $\hat\theta$ é **não-enviesado** para um parâmetro $\theta$.
+   
+   > Um estimador $\hat\theta$ é **não-enviesado** para o parâmetro $\theta$ se:
+   $$
+   \mathbb{E}[\hat\theta] = \theta
+   $$
+   Em palavras, **em média**, se repetíssemos a experiencia muitas vezes, a média das estimativas coicidiria com o verdadeiro valor do parâmetro; O valor estimado não tende sistematicamnete a sobrestimar nem a subestimar-  
+
+   (b) Explique, em palavras, o que significa **consistência** de um estimador.
+   
+   > Um estimador $\hat\theta_n$ é consistente se, $\hat\theta_n$ quando o tamanho amostral $n$ cresce, se aproxima de $\theta$ com probabilidade cada vez maior.
+   Em suma, com amostras cada vez maiores, a estimativa aproxima-se do valor verdadeiro.
+  
+   (c) Com base nas suas respostas, comente, de forma qualitativa, por que razão a média amostral $\bar X$ é um estimador “natural” para a média populacional $\mu$.
+   
+   > De forma qualitativa:
+   $\bar X$ é a **média** dos valores observados – é o resumo mais simples da tendência central.
+   Em muitas classes de modelos, sabe-se que $\bar X$ é **não-enviesado** para $\mu$ e **consistente**.
+   Além disso, sob condições usuais, é um estimador “eficiente” (tem variância relativamente baixa face a outros estimadores razoáveis).
+   Por isso, é natural usar a média amostral como estimativa da média populacional.
+   
+   (d) Calcule, em R, o mínimo, máximo, média e desvio padrão dos valores em `dados_ex1`.
+```{r E1-2-D}
+min(dados_ex1)
+max(dados_ex1)
+mean(dados_ex1)
+sd(dados_ex1)
+
+```
+
+---
+
+# Exercício 2 – Intervalos de confiança para a média
+
+Uma empresa está interessada na duração (em horas) de baterias produzidas numa certa linha de fabrico. Assume-se que a duração das baterias é aproximadamente normal.
+
+Foi recolhida uma amostra de $n = 20$ baterias, com resultados (em horas) guardados num ficheiro `baterias.csv`, numa coluna denominada `duracao`.
+
+1. **Importação e estatísticas descritivas**
+
+   (a) Importe os dados para o R e calcule a média amostral $\bar x$ e o desvio-padrão amostral $s$.
+```{r E2-1-A}
+dados_baterias <- read.csv("baterias.csv")
+
+mean(dados_baterias$duracao)
+sd(dados_baterias$duracao)
+
+```
+
+2. **IC para $\mu$ com $\sigma$ desconhecida**
+
+   (b) Admitindo que a variância populacional é **desconhecida**, construa um **intervalo de confiança a 95%** para a média duração $\mu$, assumindo normalidade.
+
+   * Indique a estatística utilizada.
+   * Refira qual a distribuição (t de Student) envolvida.
+   * Apresente a fórmula do intervalo de confiança.
+   
+   >
+
+
+   (c) Calcule esse intervalo de confiança explicitamente usando o R (pode usar `t.test`).
+```{r E2-2-C}
+t.test(dados_baterias$duracao, conf.level = 0.95)
+
+```
+
+3. **Interpretação**
+
+   (d) Interprete o intervalo de confiança obtido em linguagem simples.
+   
+   > O intervalo de confiança 95% para a média da duração das baterias vai de A até B horas.
+   Isto significa que, se repetissemos este procedimento de amostragem e construção do intervalo muitas vezes, cerca de 95% dos intervalos assim construídos conteriam o valor verdadeiro da média populacional.
+
+   (e) Discuta o que aconteceria ao comprimento do intervalo se o tamanho amostral aumentasse (mantendo a mesma variabilidade). Justifique.
+   
+   > Mantendo a mesma variabilidade ($\sigma^2$ constante):
+   O erro padrão $S/\sqrt{n}$ **diminui** quando $n$ aumenta.
+   O comprimento do IC (proporcional a $t_{n-1;0.975} \cdot S/\sqrt{n}$) **encurta**.
+   Conclusão: com mais observações, o IC é **mais estreito**, refletindo **maior precisão** na estimativa de $\mu$.
+
+---
+
+# Exercício 3 – Intervalo de confiança e teste de hipótese para uma proporção
+
+Num inquérito a **200 estudantes**, perguntou-se se utilizam transportes públicos para se deslocar até à escola.
+Dos 200 estudantes, **90** responderam “Sim”.
+
+1. **Estimador e intervalo de confiança**
+
+   (a) Calcule a proporção amostral $\hat p$ de estudantes que utilizam transportes públicos.
+   
+   > $$
+   \hat p = \frac{x}{n} = \frac{90}{200} = 0.45
+   $$
+
+   (b) Construa, usando uma aproximação normal, um **intervalo de confiança a 95%** para a proporção populacional $p$ de estudantes que usam transportes públicos.
+
+   * Escreva a fórmula geral do IC para $p$.
+   
+   > $$
+   \hat p \pm z_{1-\alpha/2}\sqrt{\frac{\hat p(1-\hat p)}{n}}.
+   $$
+   
+   * Substitua os valores numéricos e apresente o intervalo.
+   
+   > Valores:
+   $$
+   \hat p = 0.45
+   $$
+   $$
+   n = 200
+   $$
+   $$
+   \alpha = 0.05 \to z_{0.975} \approx 1.96
+   $$
+   Erro Padrão:
+   $$
+   \text{EP}(\hat p) = \sqrt{\frac{\hat p(1-\hat p)}{n}} = \sqrt{\frac{0.45 \times 0.55}{200}} \approx 0.03518
+   $$
+   Margem de erro:
+   $$
+   1.96 \times 0.03518 \approx 0.06895
+   $$
+   IC:
+   $$
+   0.45 \pm 0.06895 \Rightarrow (0.381, ; 0.519) \ \text{(aprox.)}
+   $$
+   Portanto, um IC a 95% para $p$ é aproximadamente:
+   $$
+   [0.38,; 0.52]
+   $$
+
+   (c) Verifique o resultado usando a função `prop.test` no R (sem correcção de continuidade).
+```{r E3-1-C}
+sucessos <- 90
+n <- 200
+prop.test(sucessos, n, correct = FALSE)
+
+```
+
+
+2. **Teste de hipótese**
+
+   (d) Suponha agora que se quer testar:
+
+   $$
+   H_0: p = 0.4 \quad \text{vs} \quad H_1: p \ne 0.4
+   $$
+
+   a nível de significância $\alpha = 0.05$.
+
+   * Defina a estatística de teste aproximada (baseada na normal) e a sua distribuição sob $H_0$.
+   
+   >$$
+   Z = \frac{\hat p - p_0}{\sqrt{\frac{p_0(1-p_0)}{n}}}
+   $$
+   
+   * Calcule o valor observado da estatística de teste.
+   
+   > Valores:
+   $$
+   \hat p = 0.45
+   $$
+   $$
+   p_0 = 0.4
+   $$
+   $$
+   n = 200
+   $$
+   Substituindo os valores:
+   $$
+   \text{EP}_0 = \sqrt{\frac{0.4 \times 0.6}{200}} = \sqrt{\frac{0.24}{200}} = \sqrt{0.0012} \approx 0.03464.
+   $$
+   $$
+   Z = \frac{0.45 - 0.4}{0.03464} \approx \frac{0.05}{0.03464} \approx 1.44
+   $$
+   Sob $H_0$, $Z \sim N(0,1)$. O p-valor (bilateral) é:
+   $$
+   p\text{-valor} = 2 \times P(Z > 1.44) \approx 2 \times 0.074 \approx 0.148
+   $$
+   
+   
+   * Calcule (ou obtenha no R) o $p$-valor.
+```{r E3-2-D}
+p_hat <- 90/200
+p0 <- 0.4
+n <- 200
+
+se0 <- sqrt(p0*(1-p0)/n)
+Z <- (p_hat - p0)/se0
+Z
+
+p_valor <- 2 * (1 - pnorm(abs(Z)))
+p_valor
+
+```
+
+   (e) Indique a sua decisão relativamente a $H_0$ e interprete o resultado no contexto do problema (usando linguagem acessível).
+   
+   > Os dados não fornecem evidência estatisticamente significativa, ao nível de 5%, para concluir que a proporção de estudantes que utilizam transportes públicos é diferente de 40%. A diferença observada (45% vs 40%) pode ser explicada pela variabilidade amostral.
+
+---
+
+# Exercício 4 – Inferência na regressão linear simples
+
+Pretende-se estudar a relação entre o número de horas de estudo por semana ($X$) e a nota obtida num teste de Estatística ($Y$), numa turma de 30 alunos. Os dados foram guardados num ficheiro `estudo_notas.csv`, com duas colunas: `horas_estudo` e `nota`.
+
+1. **Ajuste do modelo**
+
+   (a) Importe os dados para o R e faça um gráfico de dispersão de `nota` versus `horas_estudo`.
+```{r E4-1-A}
+dados_notas <- read.csv("estudo_notas.csv")
+
+plot(dados_notas$horas_estudo, dados_notas$nota,
+     xlab = "Horas de Estudo por Semana",
+     ylab = "Nota no Teste",
+     main = "Dispersão - Horas de Estudo vs Nota"
+)
+
+```
+
+   (b) Ajuste um modelo de **regressão linear simples**:
+
+   $$
+   Y = \beta_0 + \beta_1 X + \varepsilon
+   $$
+
+   usando a função `lm` do R, e apresente o resumo dos resultados.
+```{r E4-1-B}
+mod <- lm(nota ~ horas_estudo, data = dados_notas)
+summary(mod)
+
+```
+
+2. **Testes de hipótese sobre os coeficientes**
+
+   (c) Considere o teste de hipótese:
+
+   $$
+   H_0: \beta_1 = 0 \quad \text{vs} \quad H_1: \beta_1 \ne 0.
+   $$
+
+   * Indique, em termos gerais, o que significa $H_0$ e o que significa $H_1$ neste contexto.
+   
+   > **$H_0$**: não há relação linear média entre horas de estudo e nota; aumentando as horas de estudo, a nota esperada não muda (no modelo).
+   **$H_1$**: existe uma relação linear: as notas tendem a aumentar ou diminuir sistematicamente com as horas de estudo.
+   
+   
+   * Usando a saída de `summary(mod)`, identifique o valor da estatística t para $\hat\beta_1$ e o respetivo $p$-valor.
+   
+   > Na saída de `summary(mod)`, a linha de `horas_estudo` mostra:
+   `Estimate` = $\hat\beta_1$
+   `Std. Error` = EP($\hat\beta_1$)
+   `t value` = $\hat\beta_1 / \text{EP}(\hat\beta_1)$
+   `Pr(>|t|)` = p-valor para o teste $H_0: \beta_1 = 0$.
+
+   (d) A um nível de significância de 5%, qual é a sua conclusão relativamente a $H_0$?
+   Interprete o resultado em linguagem simples.
+   
+   > Se o p-valor para `horas_estudo` for **menor que 0.05**, rejeitamos $H_0$ e concluímos:
+   Há evidência estatística, ao nível de 5%, de que existe uma relação linear entre horas de estudo e nota. Em média, alunos que estudam mais horas tendem a obter notas diferentes (tipicamente mais altas, se $\hat\beta_1 > 0$).
+   
+   > Se o p-valor for **maior que 0.05**, não rejeitamos $H_0$ e concluímos:
+   Não há evidência estatisticamente significativa, ao nível de 5%, de que horas de estudo estejam linearmente associadas à nota (no modelo considerado).
+
+3. **Intervalo de confiança para o declive**
+
+   (e) Construa um **intervalo de confiança a 95%** para $\beta_1$ usando o R.
+```{r E4-3-E}
+confint(mod, level = 0.95)
+
+```
+
+   (f) Interprete o intervalo obtido:
+
+   * O que significa dizer que o IC para $\beta_1$ é, por exemplo, `[0.3; 0.8]`?
+   
+   > Significa que, com base nos dados, valores plausíveis para o efeito médio de uma hora extra de estudo na nota estão entre 0.3 e 0.8 pontos. Ou seja, em média, aumentar uma hora de estudo por semana está associado a um aumneto da nota entre 0.3 e 0.8 valores, aproximadamente.
+   
+   * Como relaciona essa interpretação com o teste de hipótese realizado anteriormente?
+   
+   > Como o intervalo **não contém 0**, isso é consistente com o teste de hipótese em que rejeitámos $H_0: \beta_1 = 0$ a 5%. Ou seja, o facto de 0 não pertencer ao IC a 95%, equivale, neste contexto, a dizer que o teste bilateral a 5% rejeita $H_0$.
+
+---
