@@ -22,10 +22,30 @@ plot(-2.580, 0, 'ko', 'MarkerFaceColor','k', 'MarkerSize', 5);
 text(2.3, 0.3, '$w^*$', 'Interpreter', 'latex');
 text(-2.3, 0.3, '$w^*$', 'Interpreter', 'latex');
 
-% Rótulos
-
-
-
-%---
+% Gráfico 3D
+figure('Name', 'Superfície 3D - Exercício 1', 'Color', 'w');
 surf(w1,w2,f);
+shading interp; 
+colormap(parula); 
+colorbar;
+camlight left; 
+lighting gouraud; 
+alpha 0.9;
+xlabel('w_1', 'FontSize', 12, 'FontWeight', 'bold');
+ylabel('w_2', 'FontSize', 12, 'FontWeight', 'bold');
+zlabel('F(w_1, w_2)', 'FontSize', 12, 'FontWeight', 'bold');
+title('Superfície 3D da Função Objetivo', 'FontSize', 14);
+view(-45, 35);
+grid on;
 
+% fminunc
+options = optimoptions('fminunc')
+
+% Ponto Inicial
+w0 = [1;1];
+
+% Definir a Função
+f = @(w)w(1)^3+2*w(2)^2-w(2)^3-20*w(1);
+
+% Minimização da Função f
+[xopt, fopt, exitflag, output] = fminunc(f,w0,options)
