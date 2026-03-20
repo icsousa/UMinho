@@ -18,10 +18,10 @@ vars = [w1, w2];
 F = (1 - w1)^2 + (1 - w2)^2 + 0.5*(2*w2 - w1^2)^2; 
 w0 = [-2; 1];
 
-epsilon = 1e-6; % Tolerância
-Kmax = 200;     % Máximo de iterações
-c = 0.0001;     % Parâmetro de Armijo (c)
-rho = 0.5;      % Fator de redução (rho) para backtracking
+epsilon = 1e-6; 
+Kmax = 200;     
+c = 0.0001;     
+rho = 0.5;      
 
 % Calcula o Gradiente e a Hessiana simbolicamente
 grad = gradient(F, vars);
