@@ -1,5 +1,1 @@
-1. criar uma nova janela para a tabela de maiores resultados com botao no menu, botao amarelo;
-2. ajeitar o lobby;
-3. ao cancelar uma conta deve apagar os seus registos da tabela de maiores resultados;
-4. se um jogo acabar empatado, os resultados desse jogo nao devem contar
-5. gestão do tempo com o thread sleep;
+1. não deixar dar log in se a conta já tiver logged in;
