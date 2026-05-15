@@ -1,1 +1,0 @@
-1. não deixar dar log in se a conta já tiver logged in;
