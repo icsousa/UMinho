@@ -1,14 +1,14 @@
 -module(server).
--export([start/0, accept_loop/4, gestor_de_contas/1, gestor_de_partidas/3, cliente_autenticacao/4, cliente_espera/4, cliente_receptor/5, sala_de_jogo/3, gestor_de_scores/1]).
+-export([start/0, accept_loop/4, gestor_de_contas/2, gestor_de_partidas/3, cliente_autenticacao/4, cliente_espera/5, cliente_receptor/6, sala_de_jogo/3, gestor_de_scores/1]).
+
 start() ->
     {ok, DbName} = dets:open_file(contas_db, [{file, "contas.dets"}, {type, set}]),
-    {ok, DbScores} = dets:open_file(scores_db, [{file, "scores.dets"}, {type, set}]),
     
-    GestorContasPid = spawn(?MODULE, gestor_de_contas, [DbName]),
-    GestorScoresPid = spawn(?MODULE, gestor_de_scores, [DbScores]),
-    GestorPartidasPid = spawn(?MODULE, gestor_de_partidas, [[], [], GestorScoresPid]), 
+    GestorContasPid = spawn(?MODULE, gestor_de_contas, [DbName, []]),
+    GestorScoresPid = spawn(?MODULE, gestor_de_scores, [[]]),
+    GestorPartidasPid = spawn(?MODULE, gestor_de_partidas, [[], [], GestorScoresPid]),
     
-    {ok, ListenSocket} = gen_tcp:listen(8080, [binary, {packet, 0}, {active, true}, {reuseaddr, true}]),
+    {ok, ListenSocket} = gen_tcp:listen(8080, [binary, {packet, line}, {active, true}, {reuseaddr, true}]),
     io:format("Servidor Foguete.io a escutar na porta 8080...~n"),
     accept_loop(ListenSocket, GestorContasPid, GestorPartidasPid, GestorScoresPid).
 
@@ -18,56 +18,78 @@ accept_loop(ListenSocket, GestorContasPid, GestorPartidasPid, GestorScoresPid) -
     gen_tcp:controlling_process(Socket, Pid),
     accept_loop(ListenSocket, GestorContasPid, GestorPartidasPid, GestorScoresPid).
 
-gestor_de_contas(Db) ->
+gestor_de_contas(Db, Online) ->
     receive
         {registar, User, Pass, FromPid} ->
             case dets:lookup(Db, User) of
-                [] -> dets:insert(Db, {User, Pass}), FromPid ! {resultado_registo, sucesso}, gestor_de_contas(Db);
-                _ -> FromPid ! {resultado_registo, erro_ja_existe}, gestor_de_contas(Db)
-            end;
+                [] -> 
+                    dets:insert(Db, {User, Pass}), 
+                    FromPid ! {resultado_registo, sucesso};
+                _ -> 
+                    FromPid ! {resultado_registo, erro_ja_existe}
+            end,
+            gestor_de_contas(Db, Online);
+
         {login, User, Pass, FromPid} ->
             case dets:lookup(Db, User) of
-                [{User, Pass}] -> FromPid ! {resultado_login, sucesso}, gestor_de_contas(Db);
-                _ -> FromPid ! {resultado_login, erro}, gestor_de_contas(Db)
+                [{User, Pass}] ->
+                    case lists:member(User, Online) of
+                        true ->
+                            FromPid ! {resultado_login, erro_ja_online},
+                            gestor_de_contas(Db, Online);
+                        false ->
+                            FromPid ! {resultado_login, sucesso},
+                            gestor_de_contas(Db, [User | Online])
+                    end;
+                _ -> 
+                    FromPid ! {resultado_login, erro},
+                    gestor_de_contas(Db, Online)
             end;
+
+        {logout, User} ->
+            gestor_de_contas(Db, lists:delete(User, Online));
+
         {cancelar, User, Pass, FromPid} ->
             case dets:lookup(Db, User) of
-                [{User, Pass}] -> dets:delete(Db, User), FromPid ! {resultado_cancelar, sucesso}, gestor_de_contas(Db);
-                _ -> FromPid ! {resultado_cancelar, erro}, gestor_de_contas(Db)
-            end
+                [{User, Pass}] -> 
+                    dets:delete(Db, User), 
+                    FromPid ! {resultado_cancelar, sucesso};
+                _ -> 
+                    FromPid ! {resultado_cancelar, erro}
+            end,
+            gestor_de_contas(Db, lists:delete(User, Online))
     end.
 
-gestor_de_scores(Db) ->
+gestor_de_scores(Scores) ->
     receive
         {update, User, Pontos} ->
-            case dets:lookup(Db, User) of
-                [{User, PtsAntigos}] when Pontos > PtsAntigos -> dets:insert(Db, {User, Pontos});
-                [] -> dets:insert(Db, {User, Pontos});
-                _ -> ok
+            NovosScores = case lists:keyfind(User, 1, Scores) of
+                {User, PtsAntigos} when Pontos > PtsAntigos ->
+                    lists:keyreplace(User, 1, Scores, {User, Pontos});
+                false ->
+                    [{User, Pontos} | Scores];
+                _ -> Scores
             end,
-            gestor_de_scores(Db);
-            
+            gestor_de_scores(NovosScores);
         {get_top, FromPid} ->
-            All = dets:foldl(fun(Elem, Acc) -> [Elem | Acc] end, [], Db),
-            
-            % AQUI: Filtramos a lista para manter apenas as pontuações maiores que zero (> 0)
-            Filtrados = lists:filter(fun({_, Pts}) -> Pts > 0 end, All),
-            
+            Filtrados = lists:filter(fun({_, Pts}) -> Pts > 0 end, Scores),
             Sorted = lists:reverse(lists:keysort(2, Filtrados)),
             Top = lists:sublist(Sorted, 5),
             FromPid ! {top_scores, Top},
-            gestor_de_scores(Db)
+            gestor_de_scores(Scores)
     end.
 
 gestor_de_partidas(FilaEspera, Salas, GestorScoresPid) ->
     receive
         {entrar_fila, Socket, User, PidCliente} ->
             case encontrar_sala_com_vaga(Salas) of
-                {ok, SalaPid, NumJogadores} ->
+                {ok, SalaPid, NumJogadores, TempoInicio} ->
                     io:format("~s juntou-se a uma partida em curso!~n", [User]),
+                    TempoDecorrido = erlang:system_time(millisecond) - TempoInicio,
+                    TempoRestante = 120000 - TempoDecorrido,
                     SalaPid ! {novo_jogador, Socket, User},
-                    PidCliente ! {arrancar_jogo, SalaPid},
-                    NovasSalas = lists:keyreplace(SalaPid, 1, Salas, {SalaPid, NumJogadores + 1}),
+                    PidCliente ! {arrancar_jogo, SalaPid, TempoRestante},
+                    NovasSalas = lists:keyreplace(SalaPid, 1, Salas, {SalaPid, NumJogadores + 1, TempoInicio}),
                     gestor_de_partidas(FilaEspera, NovasSalas, GestorScoresPid);
                 error ->
                     NovaFila = [{Socket, User, PidCliente} | FilaEspera],
@@ -82,8 +104,8 @@ gestor_de_partidas(FilaEspera, Salas, GestorScoresPid) ->
     end.
 
 encontrar_sala_com_vaga([]) -> error;
-encontrar_sala_com_vaga([{SalaPid, NumJogadores} | Resto]) ->
-    if NumJogadores < 4 -> {ok, SalaPid, NumJogadores};
+encontrar_sala_com_vaga([{SalaPid, NumJogadores, TempoInicio} | Resto]) ->
+    if NumJogadores < 4 -> {ok, SalaPid, NumJogadores, TempoInicio};
        true -> encontrar_sala_com_vaga(Resto)
     end.
 
@@ -91,7 +113,7 @@ tentar_iniciar_partida(FilaEspera, Salas, GestorScoresPid) when length(Salas) < 
     {JogadoresPartida, RestanteFila} = lists:split(4, FilaEspera),
     criar_e_arrancar_sala(JogadoresPartida, 4, RestanteFila, Salas, GestorScoresPid);
 
-tentar_iniciar_partida(FilaEspera, Salas, GestorScoresPid) when length(Salas) < 4, length(FilaEspera) == 3 ->
+tentar_iniciar_partida(FilaEspera, Salas, GestorScoresPid) when length(Salas) < 4, length(FilaEspera) >= 3 ->
     {JogadoresPartida, RestanteFila} = lists:split(3, FilaEspera),
     criar_e_arrancar_sala(JogadoresPartida, 3, RestanteFila, Salas, GestorScoresPid);
 
@@ -102,9 +124,10 @@ criar_e_arrancar_sala(JogadoresPartida, NumJogadores, RestanteFila, Salas, Gesto
     SalaPid = spawn(?MODULE, sala_de_jogo, [maps:new(), gerar_objetos(30, []), GestorScoresPid]),
     io:format("PARTIDA INICIADA! Criada nova sala com ~w jogadores.~n", [NumJogadores]),
     
+    TempoInicio = erlang:system_time(millisecond),
     lists:foreach(fun({Socket, User, PidCliente}) ->
         SalaPid ! {novo_jogador, Socket, User},
-        PidCliente ! {arrancar_jogo, SalaPid}
+        PidCliente ! {arrancar_jogo, SalaPid, 120000}
     end, JogadoresPartida),
     
     GestorPid = self(),
@@ -114,7 +137,7 @@ criar_e_arrancar_sala(JogadoresPartida, NumJogadores, RestanteFila, Salas, Gesto
         GestorPid ! {fim_de_partida_concluida, SalaPid} 
     end),
     
-    NovasSalas = [{SalaPid, NumJogadores} | Salas],
+    NovasSalas = [{SalaPid, NumJogadores, TempoInicio} | Salas],
     tentar_iniciar_partida(RestanteFila, NovasSalas, GestorScoresPid).
 
 cliente_autenticacao(Socket, GestorContasPid, GestorPartidasPid, GestorScoresPid) ->
@@ -140,8 +163,10 @@ cliente_autenticacao(Socket, GestorContasPid, GestorPartidasPid, GestorScoresPid
                         {resultado_login, sucesso} -> 
                             gen_tcp:send(Socket, <<"LOGIN_OK\n">>),
                             GestorPartidasPid ! {entrar_fila, Socket, User, self()},
-                            % --- AQUI: Passamos os 4 argumentos ---
-                            cliente_espera(Socket, GestorContasPid, GestorPartidasPid, GestorScoresPid);
+                            cliente_espera(Socket, User, GestorContasPid, GestorPartidasPid, GestorScoresPid);
+                        {resultado_login, erro_ja_online} ->
+                            gen_tcp:send(Socket, <<"LOGIN_FAIL_ONLINE\n">>),
+                            cliente_autenticacao(Socket, GestorContasPid, GestorPartidasPid, GestorScoresPid);
                         {resultado_login, erro} -> 
                             gen_tcp:send(Socket, <<"LOGIN_FAIL\n">>),
                             cliente_autenticacao(Socket, GestorContasPid, GestorPartidasPid, GestorScoresPid)
@@ -155,36 +180,36 @@ cliente_autenticacao(Socket, GestorContasPid, GestorPartidasPid, GestorScoresPid
         {tcp_closed, Socket} -> ok
     end.
 
-cliente_espera(Socket, GestorContasPid, GestorPartidasPid, GestorScoresPid) ->
+cliente_espera(Socket, User, GestorContasPid, GestorPartidasPid, GestorScoresPid) ->
     receive
-        {arrancar_jogo, SalaPid} ->
-            gen_tcp:send(Socket, <<"MATCH_START\n">>),
-            cliente_receptor(Socket, SalaPid, GestorContasPid, GestorPartidasPid, GestorScoresPid);
+        {arrancar_jogo, SalaPid, TempoRestante} ->
+            gen_tcp:send(Socket, list_to_binary(io_lib:format("MATCH_START,~w\n", [TempoRestante]))),
+            cliente_receptor(Socket, User, SalaPid, GestorContasPid, GestorPartidasPid, GestorScoresPid);
         {tcp_closed, _Socket} ->
-            ok 
+            GestorContasPid ! {logout, User}
     end.
 
-cliente_receptor(Socket, SalaPid, GestorContasPid, GestorPartidasPid, GestorScoresPid) ->
+cliente_receptor(Socket, User, SalaPid, GestorContasPid, GestorPartidasPid, GestorScoresPid) ->
     receive
         {tcp, Socket, Dados} ->
             Str = string:trim(binary_to_list(Dados)),
-            % --- AQUI: Lemos a nova instrução para voltar ao menu ---
             case Str of
                 "BACK_TO_MENU" ->
+                    GestorContasPid ! {logout, User},
                     cliente_autenticacao(Socket, GestorContasPid, GestorPartidasPid, GestorScoresPid);
                 _ ->
                     Up = string:str(Str, "UP") > 0, Left = string:str(Str, "LEFT") > 0, Right = string:str(Str, "RIGHT") > 0,
                     SalaPid ! {teclas, Socket, {Up, Left, Right}},
-                    cliente_receptor(Socket, SalaPid, GestorContasPid, GestorPartidasPid, GestorScoresPid)
+                    cliente_receptor(Socket, User, SalaPid, GestorContasPid, GestorPartidasPid, GestorScoresPid)
             end;
         {tcp_closed, Socket} ->
+            GestorContasPid ! {logout, User},
             SalaPid ! {remover_jogador, Socket}
     end.
 
 sala_de_jogo(Jogadores, Objetos, GestorScoresPid) ->
     receive
         fim_de_tempo ->
-            % O SCORE AGORA É BASEADO NO NÚMERO DE KILLS
             Scores = maps:fold(fun(_Sock, {User, _, _, _, _, _, _, _, Kills, _}, Acc) ->
                 [{User, Kills} | Acc]
             end, [], Jogadores),
@@ -200,7 +225,6 @@ sala_de_jogo(Jogadores, Objetos, GestorScoresPid) ->
             ok;
             
         {novo_jogador, Socket, User} ->
-            % ADICIONADO O ZERO '0' (Kills Iniciais)
             NovoEstado = {User, rand:uniform(700)+50.0, rand:uniform(500)+50.0, 0.0, 0.0, 0.0, 0.0, 10.0, 0, {false, false, false}},
             sala_de_jogo(maps:put(Socket, NovoEstado, Jogadores), Objetos, GestorScoresPid);
             
@@ -228,7 +252,7 @@ sala_de_jogo(Jogadores, Objetos, GestorScoresPid) ->
             
             {NovaMassaCrua, NovosObjetos} = verificar_colisoes(FinalX, FinalY, Raio, Massa, AccObjetos, []),
             NovoEstado = if
-                NovaMassaCrua < 10.0 -> {User, rand:uniform(700)+50.0, rand:uniform(500)+50.0, 0.0, 0.0, 0.0, 0.0, 10.0, Kills, Teclas}; % Mantém as kills se morrer para um objeto vermelho
+                NovaMassaCrua < 10.0 -> {User, rand:uniform(700)+50.0, rand:uniform(500)+50.0, 0.0, 0.0, 0.0, 0.0, 10.0, Kills, Teclas};
                 true -> {User, FinalX, FinalY, FinalVx, FinalVy, NovoAng, VAFinal, NovaMassaCrua, Kills, Teclas}
             end,
             {maps:put(Socket, NovoEstado, AccJogadores), NovosObjetos}
@@ -253,7 +277,6 @@ sala_de_jogo(Jogadores, Objetos, GestorScoresPid) ->
 
         maps:foreach(fun(MeuSocket, {MeuUser, MeuX, MeuY, _, _, MeuAng, _, MeuMassa, MeuKills, _}) ->
             MeuTamanho = MeuMassa * 2.5,
-            % Envia o número de Kills na mensagem 'STATE'
             gen_tcp:send(MeuSocket, list_to_binary(io_lib:format("STATE,~s,~f,~f,~f,~f,~w\n", [MeuUser, MeuX, MeuY, MeuTamanho, MeuAng, MeuKills]))),
             
             maps:foreach(fun(OutroSocket, {OutroUser, OutroX, OutroY, _, _, OutroAng, _, OutroMassa, _, _}) ->
@@ -280,22 +303,46 @@ colidir_dois_jogadores(S1, S2, Jogadores) ->
             {U2, X2, Y2, Vx2, Vy2, A2, VA2, M2, K2, T2} = P2,
             R1 = (M1 * 2.5) / 2.0, R2 = (M2 * 2.5) / 2.0,
             Dist = math:sqrt(math:pow(X2-X1, 2) + math:pow(Y2-Y1, 2)),
+            
             if (M1 > M2) andalso ((Dist + R2) < R1) ->
-                    % P1 ganha 1 Kill (K1 + 1). P2 mantém as Kills (K2) mas volta a nascer.
                     maps:put(S2, {U2, rand:uniform(700)+50.0, rand:uniform(500)+50.0, 0.0, 0.0, 0.0, 0.0, 10.0, K2, {false,false,false}}, 
                     maps:put(S1, {U1, X1, Y1, Vx1, Vy1, A1, VA1, M1 + (M2 / 4.0), K1 + 1, T1}, Jogadores));
                (M2 > M1) andalso ((Dist + R1) < R2) ->
-                    % P2 ganha 1 Kill (K2 + 1).
                     maps:put(S2, {U2, X2, Y2, Vx2, Vy2, A2, VA2, M2 + (M1 / 4.0), K2 + 1, T2}, 
                     maps:put(S1, {U1, rand:uniform(700)+50.0, rand:uniform(500)+50.0, 0.0, 0.0, 0.0, 0.0, 10.0, K1, {false,false,false}}, Jogadores));
+               
+               (abs(M1 - M2) < 0.01) andalso (Dist < (R1 + R2)) andalso (Dist > 0.0) ->
+                    Nx = (X2 - X1) / Dist,
+                    Ny = (Y2 - Y1) / Dist,
+                    
+                    ForcaRepulsao = 4.0,
+                    
+                    NovoVx1 = Vx1 - (Nx * ForcaRepulsao),
+                    NovoVy1 = Vy1 - (Ny * ForcaRepulsao),
+                    NovoVx2 = Vx2 + (Nx * ForcaRepulsao),
+                    NovoVy2 = Vy2 + (Ny * ForcaRepulsao),
+                    
+                    maps:put(S2, {U2, X2, Y2, NovoVx2, NovoVy2, A2, VA2, M2, K2, T2}, 
+                    maps:put(S1, {U1, X1, Y1, NovoVx1, NovoVy1, A1, VA1, M1, K1, T1}, Jogadores));
+               
                true -> Jogadores
             end;
         _ -> Jogadores
     end.
 
-gerar_um_objeto() -> Tamanho = rand:uniform(50) + 5.0, Raio = Tamanho / 2.0, {Raio + rand:uniform(round(800.0 - Tamanho)), Raio + rand:uniform(round(600.0 - Tamanho)), Tamanho, rand:uniform(2)}.
+gerar_um_objeto() -> 
+    Tamanho = rand:uniform(50) + 5.0, 
+    Raio = Tamanho / 2.0,
+    LarguraUtil = max(1, round(800.0 - Tamanho)),
+    AlturaUtil  = max(1, round(600.0 - Tamanho)),
+    {Raio + rand:uniform(LarguraUtil), 
+     Raio + rand:uniform(AlturaUtil), 
+     Tamanho, 
+     rand:uniform(2)}.
+
 gerar_objetos(0, Lista) -> Lista;
 gerar_objetos(N, Lista) -> gerar_objetos(N - 1, [gerar_um_objeto() | Lista]).
+
 verificar_colisoes(_Px, _Py, _PRaio, Massa, [], Sobreviventes) -> {Massa, Sobreviventes};
 verificar_colisoes(Px, Py, PRaio, Massa, [{Ox, Oy, OTamanho, Tipo} = Obj | Resto], Sobreviventes) ->
     ORaio = OTamanho / 2.0, Distancia = math:sqrt(math:pow(Px - Ox, 2) + math:pow(Py - Oy, 2)),
@@ -303,5 +350,6 @@ verificar_colisoes(Px, Py, PRaio, Massa, [{Ox, Oy, OTamanho, Tipo} = Obj | Resto
         2 -> if Distancia < (PRaio + ORaio) -> verificar_colisoes(Px, Py, PRaio, Massa - (OTamanho / 2.5), Resto, [gerar_um_objeto() | Sobreviventes]); true -> verificar_colisoes(Px, Py, PRaio, Massa, Resto, [Obj | Sobreviventes]) end;
         1 -> if (Distancia + ORaio) < PRaio -> verificar_colisoes(Px, Py, PRaio, Massa + (OTamanho / 2.5), Resto, [gerar_um_objeto() | Sobreviventes]); true -> verificar_colisoes(Px, Py, PRaio, Massa, Resto, [Obj | Sobreviventes]) end
     end.
+
 enviar_objetos(_Socket, []) -> ok;
 enviar_objetos(Socket, [{X, Y, Tamanho, Tipo} | Resto]) -> gen_tcp:send(Socket, list_to_binary(io_lib:format("OBJ,~f,~f,~f,~w\n", [X, Y, Tamanho, Tipo]))), enviar_objetos(Socket, Resto).
